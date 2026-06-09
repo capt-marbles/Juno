@@ -544,12 +544,120 @@ def context_export_markdown(root: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
+TUI_VIEWS = ["Dashboard", "Workspaces", "Initiatives", "Approvals", "Skills", "Activity", "Help"]
+
+
+def workspace_summaries(root: Path) -> list[str]:
+    workspaces_dir = state_dir(root) / "workspaces"
+    if not workspaces_dir.exists():
+        return []
+    rows = []
+    for path in sorted(workspaces_dir.glob("*.toml")):
+        text = path.read_text()
+        name = simple_toml_value(text, "name", path.stem)
+        kind = simple_toml_value(text, "type", path.stem)
+        desc = simple_toml_value(text, "description", "")
+        rows.append(f"{name} ({kind}) - {desc}")
+    return rows
+
+
+def tui_detail_lines(root: Path, selected: int) -> list[str]:
+    view = TUI_VIEWS[selected]
+    model = dashboard_model(root)
+    if view == "Dashboard":
+        return render_dashboard_text(model).splitlines()
+    if view == "Workspaces":
+        rows = workspace_summaries(root)
+        return ["Workspaces", "==========", "", *([f"- {row}" for row in rows] or ["No workspaces. Run `juno init`."])]
+    if view == "Initiatives":
+        return ["Initiatives", "===========", "", *format_item_list(load_collection(root, "initiatives"), "initiatives").splitlines()]
+    if view == "Approvals":
+        return ["Approvals", "=========", "", *format_item_list(load_collection(root, "approvals"), "approvals").splitlines()]
+    if view == "Skills":
+        return ["Skills", "======", "", *format_item_list(load_collection(root, "skills"), "skills").splitlines()]
+    if view == "Activity":
+        rows = recent_activity(root, limit=20)
+        lines = ["Activity", "========", ""]
+        lines.extend(f"- {item.get('at', '?')}: {item.get('event', '?')} - {item.get('detail', '')}" for item in rows)
+        return lines if len(lines) > 3 else [*lines, "No activity."]
+    return [
+        "Help",
+        "====",
+        "",
+        "Keys:",
+        "- ↑/↓ or k/j: move menu selection",
+        "- Enter: refresh selected view",
+        "- r: refresh",
+        "- q or Esc: quit",
+        "",
+        "Commands:",
+        "- juno init",
+        "- juno dashboard",
+        "- juno initiatives list",
+        "- juno approvals list",
+        "- juno skills list",
+        "- juno context export",
+    ]
+
+
+def render_tui_snapshot(root: Path, selected: int = 0, width: int = 100, height: int = 32) -> str:
+    selected = max(0, min(selected, len(TUI_VIEWS) - 1))
+    menu_width = 24
+    lines = ["Juno TUI Prototype"[:width], "=" * min(width, 80)]
+    detail = tui_detail_lines(root, selected)
+    body_height = max(0, height - len(lines) - 2)
+    for idx in range(body_height):
+        menu_text = ""
+        if idx < len(TUI_VIEWS):
+            prefix = "> " if idx == selected else "  "
+            menu_text = f"{prefix}{TUI_VIEWS[idx]}"
+        left = menu_text[: menu_width - 1].ljust(menu_width)
+        right = detail[idx] if idx < len(detail) else ""
+        lines.append((left + "│ " + right)[:width])
+    lines.append("↑/↓ move  Enter refresh  r refresh  q quit"[:width])
+    return "\n".join(lines)
+
+
+def run_curses_tui(root: Path) -> int:
+    try:
+        import curses
+    except ImportError as exc:
+        raise SystemExit("curses is not available on this platform; use `juno tui --once`.") from exc
+
+    def app(stdscr: Any) -> None:
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        selected = 0
+        while True:
+            stdscr.erase()
+            height, width = stdscr.getmaxyx()
+            snapshot = render_tui_snapshot(root, selected, width=max(20, width - 1), height=max(8, height - 1))
+            for y, line in enumerate(snapshot.splitlines()[: max(0, height - 1)]):
+                try:
+                    stdscr.addstr(y, 0, line[: max(0, width - 1)])
+                except curses.error:
+                    pass
+            stdscr.refresh()
+            key = stdscr.getch()
+            if key in (ord("q"), 27):
+                break
+            if key in (curses.KEY_DOWN, ord("j")):
+                selected = (selected + 1) % len(TUI_VIEWS)
+            elif key in (curses.KEY_UP, ord("k")):
+                selected = (selected - 1) % len(TUI_VIEWS)
+            elif key in (ord("r"), ord("\n"), curses.KEY_ENTER):
+                continue
+
+    curses.wrapper(app)
+    return 0
+
+
 def render_menu() -> str:
     lines = ["Juno", "====", "", "Terminal mission control panel for agent work.", "", "Menu:"]
     for idx, item in enumerate(MENU, start=1):
         prefix = ">" if idx == 1 else " "
         lines.append(f"{prefix} {idx}. {item.label:<17} {item.description}")
-    lines.extend(["", "Commands: init, dashboard, render dashboard, initiatives, approvals, context export"])
+    lines.extend(["", "Commands: init, dashboard, render dashboard, tui, initiatives, approvals, skills, context export"])
     return "\n".join(lines)
 
 
@@ -566,6 +674,10 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser = subparsers.add_parser("render", help="render a view")
     render_parser.add_argument("view", choices=["dashboard"], help="view to render")
     render_parser.add_argument("--format", choices=["markdown", "text"], default="markdown")
+
+    tui_parser = subparsers.add_parser("tui", help="open interactive TUI prototype")
+    tui_parser.add_argument("--once", action="store_true", help="render one non-interactive TUI snapshot")
+    tui_parser.add_argument("--view", choices=[name.lower() for name in TUI_VIEWS], default="dashboard")
 
     initiatives = subparsers.add_parser("initiatives", help="manage initiatives")
     init_sub = initiatives.add_subparsers(dest="initiative_command")
@@ -649,6 +761,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         model = dashboard_model(root)
         print(render_dashboard_text(model) if args.format == "text" else render_dashboard_markdown(model), end="")
         return 0
+
+    if args.command == "tui":
+        selected = [name.lower() for name in TUI_VIEWS].index(args.view)
+        if args.once:
+            print(render_tui_snapshot(root, selected=selected))
+            return 0
+        return run_curses_tui(root)
 
     if args.command == "initiatives":
         ensure_initialized(root)

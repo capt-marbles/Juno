@@ -353,13 +353,13 @@ MVP should be runtime-neutral:
 - risk/tool display
 - metadata-only safety model
 
-### M4: Interactive TUI prototype
+### M4: Interactive TUI prototype, done
 
 - keyboard navigation
 - dashboard view
-- workspace picker
+- workspace/menu picker
 - details pane
-- action menu stubs
+- non-interactive `juno tui --once` snapshots for tests/logs
 
 ### M5: Jcode side panel bridge
 
