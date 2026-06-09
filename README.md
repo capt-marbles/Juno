@@ -28,6 +28,11 @@ It can start as a text UI and markdown-backed side panel, then evolve into struc
 4. Keep humans in control of risky external actions through explicit approval gates.
 5. Dogfood Jcode selfdev workflows first.
 
+
+## MVP spec
+
+See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria.
+
 ## Mental model
 
 ```text
