@@ -652,6 +652,58 @@ def run_curses_tui(root: Path) -> int:
     return 0
 
 
+def write_or_print(content: str, output: Optional[str]) -> None:
+    if output:
+        path = Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        print(f"Wrote {path}")
+    else:
+        print(content, end="" if content.endswith("\n") else "\n")
+
+
+def render_named_view(root: Path, view: str, fmt: str = "markdown", tui_view: str = "dashboard") -> str:
+    if view == "dashboard":
+        model = dashboard_model(root)
+        return render_dashboard_text(model) + "\n" if fmt == "text" else render_dashboard_markdown(model)
+    if view == "context":
+        return context_export_markdown(root)
+    if view == "tui":
+        selected = [name.lower() for name in TUI_VIEWS].index(tui_view)
+        snapshot = render_tui_snapshot(root, selected=selected)
+        if fmt == "markdown":
+            return "# Juno TUI Snapshot\n\n```text\n" + snapshot + "\n```\n"
+        return snapshot + "\n"
+    raise SystemExit(f"Unknown render view: {view}")
+
+
+def render_jcode_panel(root: Path, tui_view: str = "dashboard") -> str:
+    model = dashboard_model(root)
+    return "\n".join([
+        "# Juno Control Panel",
+        "",
+        "## Dashboard",
+        "",
+        render_dashboard_markdown(model).strip(),
+        "",
+        "## Agent Context",
+        "",
+        context_export_markdown(root).strip(),
+        "",
+        "## TUI Snapshot",
+        "",
+        "```text",
+        render_tui_snapshot(root, selected=[name.lower() for name in TUI_VIEWS].index(tui_view)).strip(),
+        "```",
+        "",
+        "## Usage",
+        "",
+        "- Refresh this panel: `juno jcode panel --output .juno/jcode-panel.md`",
+        "- Export agent context: `juno context export`",
+        "- Open local TUI: `juno tui`",
+    ]) + "\n"
+
+
 def render_menu() -> str:
     lines = ["Juno", "====", "", "Terminal mission control panel for agent work.", "", "Menu:"]
     for idx, item in enumerate(MENU, start=1):
@@ -672,8 +724,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("dashboard", help="show project dashboard")
 
     render_parser = subparsers.add_parser("render", help="render a view")
-    render_parser.add_argument("view", choices=["dashboard"], help="view to render")
+    render_parser.add_argument("view", choices=["dashboard", "context", "tui"], help="view to render")
     render_parser.add_argument("--format", choices=["markdown", "text"], default="markdown")
+    render_parser.add_argument("--tui-view", choices=[name.lower() for name in TUI_VIEWS], default="dashboard")
+    render_parser.add_argument("--output", help="write rendered output to a file")
 
     tui_parser = subparsers.add_parser("tui", help="open interactive TUI prototype")
     tui_parser.add_argument("--once", action="store_true", help="render one non-interactive TUI snapshot")
@@ -724,6 +778,12 @@ def build_parser() -> argparse.ArgumentParser:
         sp = skill_sub.add_parser(name, help=f"{name} skill")
         sp.add_argument("id")
 
+    jcode = subparsers.add_parser("jcode", help="Jcode integration helpers")
+    jcode_sub = jcode.add_subparsers(dest="jcode_command")
+    panel = jcode_sub.add_parser("panel", help="render a Jcode side-panel markdown page")
+    panel.add_argument("--output", default=str(Path(JUNO_DIR) / "jcode-panel.md"), help="output markdown path")
+    panel.add_argument("--tui-view", choices=[name.lower() for name in TUI_VIEWS], default="dashboard")
+
     context = subparsers.add_parser("context", help="export context for an agent")
     context_sub = context.add_subparsers(dest="context_command")
     context_sub.add_parser("export", help="export markdown context")
@@ -758,8 +818,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     if args.command == "render":
-        model = dashboard_model(root)
-        print(render_dashboard_text(model) if args.format == "text" else render_dashboard_markdown(model), end="")
+        write_or_print(render_named_view(root, args.view, args.format, args.tui_view), args.output)
         return 0
 
     if args.command == "tui":
@@ -821,6 +880,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(format_item_detail(set_skill_enabled(root, args.id, False)))
         else:
             print(format_item_list(load_collection(root, "skills"), "skills"))
+        return 0
+
+    if args.command == "jcode":
+        if args.jcode_command == "panel":
+            write_or_print(render_jcode_panel(root, args.tui_view), args.output)
+            return 0
+        parser.parse_args(["jcode", "--help"])
         return 0
 
     if args.command == "context":

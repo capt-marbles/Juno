@@ -39,11 +39,11 @@ juno dashboard
 juno render dashboard > .juno/panel.md
 ```
 
-M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export. M3 adds the metadata-only Skills Center. M4 adds a curses-based TUI prototype with a testable `--once` mode.
+M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export. M3 adds the metadata-only Skills Center. M4 adds a curses-based TUI prototype with a testable `--once` mode. M5 adds file-based Jcode side panel bridge rendering.
 
 ## MVP spec
 
-See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria. See [`docs/skill-manifest.md`](docs/skill-manifest.md) for the M3 skill manifest format. See [`docs/tui.md`](docs/tui.md) for the M4 TUI prototype.
+See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria. See [`docs/skill-manifest.md`](docs/skill-manifest.md) for the M3 skill manifest format. See [`docs/tui.md`](docs/tui.md) for the M4 TUI prototype. See [`docs/jcode-side-panel.md`](docs/jcode-side-panel.md) for the M5 side panel bridge.
 
 ## Mental model
 
@@ -58,4 +58,4 @@ Skills      = extensible workflow/playbook packages
 
 ## Status
 
-M4 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, metadata-only Skills Center, curses TUI prototype, and CLI tests. Next milestone is M5: Jcode side panel bridge.
+M5 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, metadata-only Skills Center, curses TUI prototype, Jcode side panel bridge, and CLI tests. Next milestone is M6: choose Textual polish, Claude Code companion mode, or GitHub skill import.

@@ -361,11 +361,11 @@ MVP should be runtime-neutral:
 - details pane
 - non-interactive `juno tui --once` snapshots for tests/logs
 
-### M5: Jcode side panel bridge
+### M5: Jcode side panel bridge, done
 
-- render Juno dashboard to markdown
-- optionally invoke Jcode side panel loading if available
-- selfdev workspace preset
+- render Juno dashboard/context/TUI snapshots to markdown files
+- render combined `juno jcode panel` markdown page
+- selfdev/GTM workspace presets are included from M1
 
 ## MVP success criteria
 
