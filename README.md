@@ -39,7 +39,7 @@ juno dashboard
 juno render dashboard > .juno/panel.md
 ```
 
-M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes.
+M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export.
 
 ## MVP spec
 
@@ -58,4 +58,4 @@ Skills      = extensible workflow/playbook packages
 
 ## Status
 
-M1 is implemented: local `.juno/` state, a git-aware dashboard, markdown rendering, and CLI tests. Next milestone is M2: initiatives, approvals, activity log expansion, and context export.
+M2 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, and CLI tests. Next milestone is M3: Skills Center MVP.

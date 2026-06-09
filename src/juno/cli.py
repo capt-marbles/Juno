@@ -30,7 +30,6 @@ MENU = [
     MenuItem("Settings", "Workspace config and safety policy"),
 ]
 
-
 DEFAULT_CONFIG = """# Juno project config
 active_workspace = "selfdev"
 
@@ -101,11 +100,22 @@ def read_json_file(path: Path, default: Any) -> Any:
         return default
 
 
+def write_json_file(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
 def append_activity(root: Path, event: str, detail: str) -> None:
     activity_path = state_dir(root) / "activity.jsonl"
+    activity_path.parent.mkdir(parents=True, exist_ok=True)
     record = {"at": utc_now(), "event": event, "detail": detail}
     with activity_path.open("a") as f:
         f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def ensure_initialized(root: Path) -> None:
+    if not state_dir(root).exists():
+        raise SystemExit("Juno state not initialized. Run `juno init` first.")
 
 
 def init_project(root: Path, force: bool = False) -> list[Path]:
@@ -174,6 +184,117 @@ def recent_activity(root: Path, limit: int = 5) -> list[dict[str, Any]]:
     return records[-limit:]
 
 
+def collection_path(root: Path, name: str) -> Path:
+    return state_dir(root) / f"{name}.json"
+
+
+def load_collection(root: Path, name: str) -> list[dict[str, Any]]:
+    value = read_json_file(collection_path(root, name), [])
+    return value if isinstance(value, list) else []
+
+
+def save_collection(root: Path, name: str, value: list[dict[str, Any]]) -> None:
+    write_json_file(collection_path(root, name), value)
+
+
+def slug_id(title: str, existing: list[dict[str, Any]]) -> str:
+    base = "".join(c.lower() if c.isalnum() else "-" for c in title).strip("-") or "item"
+    while "--" in base:
+        base = base.replace("--", "-")
+    used = {str(item.get("id")) for item in existing}
+    candidate = base
+    idx = 2
+    while candidate in used:
+        candidate = f"{base}-{idx}"
+        idx += 1
+    return candidate
+
+
+def find_item(items: list[dict[str, Any]], item_id: str) -> Optional[dict[str, Any]]:
+    for item in items:
+        if str(item.get("id")) == item_id:
+            return item
+    return None
+
+
+def add_initiative(root: Path, title: str, priority: str, status: str, next_step: Optional[str]) -> dict[str, Any]:
+    ensure_initialized(root)
+    items = load_collection(root, "initiatives")
+    item = {
+        "id": slug_id(title, items),
+        "title": title,
+        "status": status,
+        "priority": priority,
+        "progress_percent": 0,
+        "next_steps": [next_step] if next_step else [],
+        "blockers": [],
+        "linked": [],
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    items.append(item)
+    save_collection(root, "initiatives", items)
+    append_activity(root, "initiative.add", f"Added initiative {item['id']}: {title}")
+    return item
+
+
+def update_initiative(root: Path, item_id: str, args: argparse.Namespace) -> dict[str, Any]:
+    ensure_initialized(root)
+    items = load_collection(root, "initiatives")
+    item = find_item(items, item_id)
+    if item is None:
+        raise SystemExit(f"Initiative not found: {item_id}")
+    for field in ["title", "status", "priority"]:
+        value = getattr(args, field, None)
+        if value is not None:
+            item[field] = value
+    if args.progress is not None:
+        item["progress_percent"] = max(0, min(100, args.progress))
+    if args.next_step:
+        item.setdefault("next_steps", []).append(args.next_step)
+    if args.blocker:
+        item.setdefault("blockers", []).append(args.blocker)
+    item["updated_at"] = utc_now()
+    save_collection(root, "initiatives", items)
+    append_activity(root, "initiative.update", f"Updated initiative {item_id}")
+    return item
+
+
+def add_approval(root: Path, title: str, action_type: str, risk: str, draft: str, evidence: list[str]) -> dict[str, Any]:
+    ensure_initialized(root)
+    cfg = read_config(root)
+    items = load_collection(root, "approvals")
+    item = {
+        "id": slug_id(title, items),
+        "title": title,
+        "workspace": cfg["active_workspace"],
+        "action_type": action_type,
+        "risk": risk,
+        "draft": draft,
+        "evidence": evidence,
+        "status": "pending",
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    items.append(item)
+    save_collection(root, "approvals", items)
+    append_activity(root, "approval.add", f"Added approval {item['id']}: {title}")
+    return item
+
+
+def set_approval_status(root: Path, item_id: str, status: str) -> dict[str, Any]:
+    ensure_initialized(root)
+    items = load_collection(root, "approvals")
+    item = find_item(items, item_id)
+    if item is None:
+        raise SystemExit(f"Approval not found: {item_id}")
+    item["status"] = status
+    item["updated_at"] = utc_now()
+    save_collection(root, "approvals", items)
+    append_activity(root, f"approval.{status}", f"Marked approval {item_id} {status}")
+    return item
+
+
 def dashboard_model(root: Path) -> dict[str, Any]:
     juno = state_dir(root)
     cfg = read_config(root)
@@ -202,11 +323,12 @@ def suggested_actions(model: dict[str, Any]) -> list[str]:
     if not model["initialized"]:
         actions.append("Run `juno init` to create local project state.")
     if model["counts"]["pending_approvals"]:
-        actions.append("Review pending approvals.")
+        actions.append("Review pending approvals with `juno approvals list`.")
     if model["counts"]["initiatives"] == 0:
-        actions.append("Add an initiative for the current project goal.")
+        actions.append("Add an initiative with `juno initiatives add \"Ship current goal\"`.")
     if model["counts"]["skills"] == 0:
         actions.append("Import or define skills for this workspace.")
+    actions.append("Run `juno context export` to hand context to an agent.")
     actions.append("Run `juno render dashboard` to produce side-panel markdown.")
     return actions
 
@@ -276,12 +398,82 @@ def render_dashboard_markdown(model: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_item_list(items: list[dict[str, Any]], kind: str) -> str:
+    if not items:
+        return f"No {kind}."
+    lines = []
+    for item in items:
+        title = item.get("title", item.get("name", "untitled"))
+        status = item.get("status", "unknown")
+        extra = item.get("priority") or item.get("risk") or ""
+        suffix = f" [{extra}]" if extra else ""
+        lines.append(f"- {item.get('id')}: {title} ({status}){suffix}")
+    return "\n".join(lines)
+
+
+def format_item_detail(item: dict[str, Any]) -> str:
+    return json.dumps(item, indent=2, sort_keys=True)
+
+
+def context_export_markdown(root: Path) -> str:
+    model = dashboard_model(root)
+    initiatives = load_collection(root, "initiatives") if model["initialized"] else []
+    approvals = load_collection(root, "approvals") if model["initialized"] else []
+    skills = load_collection(root, "skills") if model["initialized"] else []
+    active = [i for i in initiatives if i.get("status", "active") in {"active", "blocked"}]
+    pending = [a for a in approvals if a.get("status", "pending") == "pending"]
+
+    lines = [
+        "# Juno Agent Context",
+        "",
+        f"Generated: `{utc_now()}`",
+        "",
+        "## Dashboard",
+        "",
+        f"- Project: **{model['project_name']}**",
+        f"- Workspace: `{model['active_workspace']}`",
+        f"- Root: `{model['project_root']}`",
+        f"- Git: `{model['git']['branch']}` / `{model['git']['status']}`",
+        "",
+        "## Active initiatives",
+        "",
+    ]
+    if active:
+        for item in active:
+            steps = item.get("next_steps") or []
+            lines.append(f"- **{item.get('id')}**: {item.get('title')} ({item.get('status')}, {item.get('progress_percent', 0)}%)")
+            if steps:
+                lines.append(f"  - Next: {steps[-1]}")
+    else:
+        lines.append("- None")
+    lines.extend(["", "## Pending approvals", ""])
+    if pending:
+        for item in pending:
+            lines.append(f"- **{item.get('id')}**: {item.get('title')} ({item.get('risk')} risk, {item.get('action_type')})")
+            draft = str(item.get("draft", "")).strip()
+            if draft:
+                lines.append(f"  - Draft: {draft[:240]}")
+    else:
+        lines.append("- None")
+    lines.extend(["", "## Skills", ""])
+    if skills:
+        for item in skills:
+            lines.append(f"- **{item.get('name', item.get('id', 'skill'))}**: {item.get('description', '')}")
+    else:
+        lines.append("- None imported yet")
+    lines.extend(["", "## Recent activity", ""])
+    for item in model["activity"] or []:
+        lines.append(f"- `{item.get('at', '?')}` **{item.get('event', '?')}**: {item.get('detail', '')}")
+    lines.extend(["", "## Suggested prompt", "", "Use this Juno context to choose the next safe, useful action. Preserve approval gates for any external or risky action."])
+    return "\n".join(lines) + "\n"
+
+
 def render_menu() -> str:
     lines = ["Juno", "====", "", "Terminal mission control panel for agent work.", "", "Menu:"]
     for idx, item in enumerate(MENU, start=1):
         prefix = ">" if idx == 1 else " "
         lines.append(f"{prefix} {idx}. {item.label:<17} {item.description}")
-    lines.extend(["", "Commands: init, dashboard, render dashboard"])
+    lines.extend(["", "Commands: init, dashboard, render dashboard, initiatives, approvals, context export"])
     return "\n".join(lines)
 
 
@@ -298,6 +490,44 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser = subparsers.add_parser("render", help="render a view")
     render_parser.add_argument("view", choices=["dashboard"], help="view to render")
     render_parser.add_argument("--format", choices=["markdown", "text"], default="markdown")
+
+    initiatives = subparsers.add_parser("initiatives", help="manage initiatives")
+    init_sub = initiatives.add_subparsers(dest="initiative_command")
+    init_sub.add_parser("list", help="list initiatives")
+    init_add = init_sub.add_parser("add", help="add initiative")
+    init_add.add_argument("title")
+    init_add.add_argument("--priority", default="normal")
+    init_add.add_argument("--status", default="active", choices=["active", "blocked", "done", "paused"])
+    init_add.add_argument("--next-step")
+    init_show = init_sub.add_parser("show", help="show initiative")
+    init_show.add_argument("id")
+    init_update = init_sub.add_parser("update", help="update initiative")
+    init_update.add_argument("id")
+    init_update.add_argument("--title")
+    init_update.add_argument("--status", choices=["active", "blocked", "done", "paused"])
+    init_update.add_argument("--priority")
+    init_update.add_argument("--progress", type=int)
+    init_update.add_argument("--next-step")
+    init_update.add_argument("--blocker")
+
+    approvals = subparsers.add_parser("approvals", help="manage approvals")
+    app_sub = approvals.add_subparsers(dest="approval_command")
+    app_sub.add_parser("list", help="list approvals")
+    app_add = app_sub.add_parser("add", help="add approval")
+    app_add.add_argument("title")
+    app_add.add_argument("--type", default="draft", dest="action_type")
+    app_add.add_argument("--risk", default="medium", choices=["low", "medium", "high"])
+    app_add.add_argument("--draft", required=True)
+    app_add.add_argument("--evidence", action="append", default=[])
+    app_show = app_sub.add_parser("show", help="show approval")
+    app_show.add_argument("id")
+    for name in ["approve", "reject", "export"]:
+        p = app_sub.add_parser(name, help=f"{name} approval")
+        p.add_argument("id")
+
+    context = subparsers.add_parser("context", help="export context for an agent")
+    context_sub = context.add_subparsers(dest="context_command")
+    context_sub.add_parser("export", help="export markdown context")
 
     return parser
 
@@ -330,10 +560,51 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == "render":
         model = dashboard_model(root)
-        if args.format == "text":
-            print(render_dashboard_text(model))
+        print(render_dashboard_text(model) if args.format == "text" else render_dashboard_markdown(model), end="")
+        return 0
+
+    if args.command == "initiatives":
+        ensure_initialized(root)
+        if args.initiative_command == "add":
+            print(format_item_detail(add_initiative(root, args.title, args.priority, args.status, args.next_step)))
+        elif args.initiative_command == "show":
+            item = find_item(load_collection(root, "initiatives"), args.id)
+            if item is None:
+                raise SystemExit(f"Initiative not found: {args.id}")
+            print(format_item_detail(item))
+        elif args.initiative_command == "update":
+            print(format_item_detail(update_initiative(root, args.id, args)))
         else:
-            print(render_dashboard_markdown(model), end="")
+            print(format_item_list(load_collection(root, "initiatives"), "initiatives"))
+        return 0
+
+    if args.command == "approvals":
+        ensure_initialized(root)
+        if args.approval_command == "add":
+            print(format_item_detail(add_approval(root, args.title, args.action_type, args.risk, args.draft, args.evidence)))
+        elif args.approval_command == "show":
+            item = find_item(load_collection(root, "approvals"), args.id)
+            if item is None:
+                raise SystemExit(f"Approval not found: {args.id}")
+            print(format_item_detail(item))
+        elif args.approval_command == "approve":
+            print(format_item_detail(set_approval_status(root, args.id, "approved")))
+        elif args.approval_command == "reject":
+            print(format_item_detail(set_approval_status(root, args.id, "rejected")))
+        elif args.approval_command == "export":
+            item = find_item(load_collection(root, "approvals"), args.id)
+            if item is None:
+                raise SystemExit(f"Approval not found: {args.id}")
+            print(item.get("draft", ""))
+        else:
+            print(format_item_list(load_collection(root, "approvals"), "approvals"))
+        return 0
+
+    if args.command == "context":
+        if args.context_command == "export":
+            print(context_export_markdown(root), end="")
+            return 0
+        parser.parse_args(["context", "--help"])
         return 0
 
     print(render_menu())

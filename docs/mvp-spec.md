@@ -338,11 +338,11 @@ MVP should be runtime-neutral:
 - git status summary
 - markdown render command
 
-### M2: Initiatives and approvals
+### M2: Initiatives and approvals, done
 
 - CRUD/list for initiatives
-- approvals list/show/approve/reject
-- activity log
+- approvals list/show/approve/reject/export
+- activity log expansion
 - context export
 
 ### M3: Skills Center MVP
