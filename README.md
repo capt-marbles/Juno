@@ -1,14 +1,14 @@
-# JcodeCP
+# Juno
 
-**JcodeCP** is an experimental terminal control panel for managing agent work in Jcode.
+**Juno** is an experimental terminal mission control panel for managing agent work across Jcode, Claude Code-style companions, and other local agent workflows.
 
-> Chat is where you ask. JcodeCP is where you steer, review, approve, and monitor.
+> Chat is where you ask. Juno is where you steer, review, approve, and monitor.
 
-Jcode already has powerful primitives: tools, background tasks, ambient cycles, side panels, memory, initiatives, selfdev, subagents, and swarms. JcodeCP explores the product/control layer that turns those primitives into navigable workspaces.
+Jcode already has powerful primitives: tools, background tasks, ambient cycles, side panels, memory, initiatives, selfdev, subagents, and swarms. Juno explores the product/control layer that turns those primitives into navigable workspaces, while leaving room to support other agent runtimes as companion integrations.
 
 ## Early concept
 
-JcodeCP is a keyboard-driven control panel that can be opened when you want to work in a focused mode:
+Juno is a keyboard-driven control panel that can be opened when you want to work in a focused mode:
 
 - Selfdev cockpit
 - GTM command center
@@ -32,7 +32,7 @@ It can start as a text UI and markdown-backed side panel, then evolve into struc
 
 ```text
 Jcode       = agent runtime + chat interface
-JcodeCP     = mission control / operator console
+Juno     = mission control / operator console
 Ambient     = background worker loop
 Initiatives = durable goals
 Side panel  = display surface

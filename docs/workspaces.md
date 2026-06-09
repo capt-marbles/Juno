@@ -1,6 +1,6 @@
 # Workspaces
 
-JcodeCP should organize work into selectable workspaces. A workspace is a focused operating mode with its own views, actions, state, and approval rules.
+Juno should organize work into selectable workspaces. A workspace is a focused operating mode with its own views, actions, state, and approval rules.
 
 ## Workspace picker
 

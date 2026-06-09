@@ -1,6 +1,6 @@
 # Menu System
 
-JcodeCP can start as a terminal text menu, even before rich widgets exist.
+Juno can start as a terminal text menu, even before rich widgets exist.
 
 ## Navigation
 
@@ -17,7 +17,7 @@ JcodeCP can start as a terminal text menu, even before rich widgets exist.
 ## Layout sketch
 
 ```text
-┌─ JcodeCP ──────────────────────────────┐
+┌─ Juno ──────────────────────────────┐
 │ Workspace: Selfdev                     │
 ├────────────────────────────────────────┤
 │ > Dashboard                            │

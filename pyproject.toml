@@ -1,14 +1,14 @@
 [project]
-name = "jcodecp"
+name = "juno"
 version = "0.1.0"
-description = "Experimental terminal control panel for Jcode agent work"
+description = "Terminal control panel for agent work"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "A Walker" }]
 license = { text = "MIT" }
 
 [project.scripts]
-jcodecp = "jcodecp.cli:main"
+juno = "juno.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

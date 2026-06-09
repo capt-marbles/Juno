@@ -25,10 +25,10 @@ MENU = [
 
 def render_menu() -> str:
     lines = [
-        "JcodeCP skeleton",
+        "Juno skeleton",
         "================",
         "",
-        "Terminal control panel for Jcode agent work.",
+        "Terminal mission control panel for agent work.",
         "",
         "MVP menu:",
     ]
@@ -45,11 +45,11 @@ def render_menu() -> str:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="JcodeCP skeleton CLI")
+    parser = argparse.ArgumentParser(description="Juno skeleton CLI")
     parser.add_argument("--version", action="store_true", help="print version and exit")
     args = parser.parse_args(argv)
     if args.version:
-        from jcodecp import __version__
+        from juno import __version__
 
         print(__version__)
         return 0

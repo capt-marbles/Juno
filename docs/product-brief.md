@@ -1,8 +1,8 @@
-# JcodeCP Product Brief
+# Juno Product Brief
 
 ## One-liner
 
-JcodeCP is a terminal-first control panel for operating Jcode agents, workflows, approvals, skills, and ambient tasks.
+Juno is a terminal-first mission control panel for operating Jcode agents, workflows, approvals, skills, and ambient tasks.
 
 ## Problem
 

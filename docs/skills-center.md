@@ -1,6 +1,6 @@
 # Skills Center
 
-Skills management and import should be a first-class JcodeCP module.
+Skills management and import should be a first-class Juno module.
 
 ## Core views
 
@@ -82,7 +82,7 @@ Actions: [Install] [Cancel]
 
 ## Safety notes
 
-Skills should declare required tools and risk categories. JcodeCP should show this before install or enablement.
+Skills should declare required tools and risk categories. Juno should show this before install or enablement.
 
 Suggested risk categories:
 
