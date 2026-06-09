@@ -39,11 +39,11 @@ juno dashboard
 juno render dashboard > .juno/panel.md
 ```
 
-M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export.
+M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export. M3 adds the metadata-only Skills Center.
 
 ## MVP spec
 
-See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria.
+See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria. See [`docs/skill-manifest.md`](docs/skill-manifest.md) for the M3 skill manifest format.
 
 ## Mental model
 
@@ -58,4 +58,4 @@ Skills      = extensible workflow/playbook packages
 
 ## Status
 
-M2 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, and CLI tests. Next milestone is M3: Skills Center MVP.
+M3 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, metadata-only Skills Center, and CLI tests. Next milestone is M4: interactive TUI prototype.

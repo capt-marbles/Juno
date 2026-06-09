@@ -295,6 +295,79 @@ def set_approval_status(root: Path, item_id: str, status: str) -> dict[str, Any]
     return item
 
 
+def normalize_string_list(value: Any, field: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise SystemExit(f"Skill manifest field `{field}` must be a list of strings")
+    return value
+
+
+def load_skill_manifest(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid skill manifest JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise SystemExit("Skill manifest must be a JSON object")
+    name = str(raw.get("name", "")).strip()
+    if not name:
+        raise SystemExit("Skill manifest requires a non-empty `name`")
+    skill_id = str(raw.get("id") or slug_id(name, [])).strip()
+    if not skill_id:
+        raise SystemExit("Skill manifest id cannot be empty")
+    risk = str(raw.get("risk", raw.get("risk_category", "read-only")))
+    allowed_risks = {"read-only", "local-file-edits", "shell-execution", "network-access", "repository-push", "external-action", "credentials-required"}
+    if risk not in allowed_risks:
+        raise SystemExit(f"Skill risk must be one of: {', '.join(sorted(allowed_risks))}")
+    return {
+        "id": skill_id,
+        "name": name,
+        "description": str(raw.get("description", "")),
+        "source": str(raw.get("source", str(path))),
+        "version": str(raw.get("version", "0.1.0")),
+        "enabled": bool(raw.get("enabled", False)),
+        "workspace_scope": normalize_string_list(raw.get("workspace_scope", ["*"]), "workspace_scope"),
+        "required_tools": normalize_string_list(raw.get("required_tools", []), "required_tools"),
+        "risk": risk,
+        "example_prompts": normalize_string_list(raw.get("example_prompts", []), "example_prompts"),
+        "imported_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+
+
+def import_skill(root: Path, manifest_path: Path) -> dict[str, Any]:
+    ensure_initialized(root)
+    skill = load_skill_manifest(manifest_path)
+    items = load_collection(root, "skills")
+    existing = find_item(items, skill["id"])
+    if existing is None:
+        items.append(skill)
+        action = "Imported"
+    else:
+        enabled = existing.get("enabled", False)
+        existing.clear()
+        existing.update(skill)
+        existing["enabled"] = enabled
+        action = "Updated"
+    save_collection(root, "skills", items)
+    append_activity(root, "skill.import", f"{action} skill {skill['id']}: {skill['name']}")
+    return skill
+
+
+def set_skill_enabled(root: Path, skill_id: str, enabled: bool) -> dict[str, Any]:
+    ensure_initialized(root)
+    items = load_collection(root, "skills")
+    item = find_item(items, skill_id)
+    if item is None:
+        raise SystemExit(f"Skill not found: {skill_id}")
+    item["enabled"] = enabled
+    item["updated_at"] = utc_now()
+    save_collection(root, "skills", items)
+    append_activity(root, "skill.enable" if enabled else "skill.disable", f"{'Enabled' if enabled else 'Disabled'} skill {skill_id}")
+    return item
+
+
 def dashboard_model(root: Path) -> dict[str, Any]:
     juno = state_dir(root)
     cfg = read_config(root)
@@ -404,7 +477,7 @@ def format_item_list(items: list[dict[str, Any]], kind: str) -> str:
     lines = []
     for item in items:
         title = item.get("title", item.get("name", "untitled"))
-        status = item.get("status", "unknown")
+        status = item.get("status", "enabled" if item.get("enabled") is True else "disabled" if "enabled" in item else "unknown")
         extra = item.get("priority") or item.get("risk") or ""
         suffix = f" [{extra}]" if extra else ""
         lines.append(f"- {item.get('id')}: {title} ({status}){suffix}")
@@ -458,7 +531,10 @@ def context_export_markdown(root: Path) -> str:
     lines.extend(["", "## Skills", ""])
     if skills:
         for item in skills:
-            lines.append(f"- **{item.get('name', item.get('id', 'skill'))}**: {item.get('description', '')}")
+            enabled = "enabled" if item.get("enabled") else "disabled"
+            tools = ", ".join(item.get("required_tools", [])) or "no tools declared"
+            lines.append(f"- **{item.get('name', item.get('id', 'skill'))}** ({enabled}, {item.get('risk', 'unknown')}): {item.get('description', '')}")
+            lines.append(f"  - Tools: {tools}")
     else:
         lines.append("- None imported yet")
     lines.extend(["", "## Recent activity", ""])
@@ -524,6 +600,17 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ["approve", "reject", "export"]:
         p = app_sub.add_parser(name, help=f"{name} approval")
         p.add_argument("id")
+
+    skills = subparsers.add_parser("skills", help="manage skills metadata")
+    skill_sub = skills.add_subparsers(dest="skill_command")
+    skill_sub.add_parser("list", help="list skills")
+    skill_import = skill_sub.add_parser("import", help="import a local skill manifest JSON")
+    skill_import.add_argument("path")
+    skill_show = skill_sub.add_parser("show", help="show skill")
+    skill_show.add_argument("id")
+    for name in ["enable", "disable"]:
+        sp = skill_sub.add_parser(name, help=f"{name} skill")
+        sp.add_argument("id")
 
     context = subparsers.add_parser("context", help="export context for an agent")
     context_sub = context.add_subparsers(dest="context_command")
@@ -598,6 +685,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(item.get("draft", ""))
         else:
             print(format_item_list(load_collection(root, "approvals"), "approvals"))
+        return 0
+
+    if args.command == "skills":
+        ensure_initialized(root)
+        if args.skill_command == "import":
+            print(format_item_detail(import_skill(root, Path(args.path))))
+        elif args.skill_command == "show":
+            item = find_item(load_collection(root, "skills"), args.id)
+            if item is None:
+                raise SystemExit(f"Skill not found: {args.id}")
+            print(format_item_detail(item))
+        elif args.skill_command == "enable":
+            print(format_item_detail(set_skill_enabled(root, args.id, True)))
+        elif args.skill_command == "disable":
+            print(format_item_detail(set_skill_enabled(root, args.id, False)))
+        else:
+            print(format_item_list(load_collection(root, "skills"), "skills"))
         return 0
 
     if args.command == "context":

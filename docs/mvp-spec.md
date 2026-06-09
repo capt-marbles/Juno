@@ -345,12 +345,13 @@ MVP should be runtime-neutral:
 - activity log expansion
 - context export
 
-### M3: Skills Center MVP
+### M3: Skills Center MVP, done
 
 - skill manifest schema
 - local skill import
 - list/show/enable/disable
 - risk/tool display
+- metadata-only safety model
 
 ### M4: Interactive TUI prototype
 

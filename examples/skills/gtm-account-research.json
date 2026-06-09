@@ -1,0 +1,14 @@
+{
+  "id": "gtm-account-research",
+  "name": "GTM Account Research",
+  "description": "Build evidence-backed account briefs and outbound angles from public market signals.",
+  "source": "examples/skills/gtm-account-research.json",
+  "version": "0.1.0",
+  "workspace_scope": ["gtm"],
+  "required_tools": ["websearch", "webfetch", "memory", "side_panel"],
+  "risk": "network-access",
+  "example_prompts": [
+    "Research Acme AI and produce an account brief with cited trigger events.",
+    "Find three non-spammy outbound angles for this account based on recent signals."
+  ]
+}
