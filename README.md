@@ -49,7 +49,7 @@ See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stori
 
 ```text
 Jcode       = agent runtime + chat interface
-Juno     = mission control / operator console
+Juno       = mission control / operator console
 Ambient     = background worker loop
 Initiatives = durable goals
 Side panel  = display surface
@@ -58,4 +58,4 @@ Skills      = extensible workflow/playbook packages
 
 ## Status
 
-This repo is a skeleton containing early design thinking and a tiny CLI placeholder.
+M1 is implemented: local `.juno/` state, a git-aware dashboard, markdown rendering, and CLI tests. Next milestone is M2: initiatives, approvals, activity log expansion, and context export.
