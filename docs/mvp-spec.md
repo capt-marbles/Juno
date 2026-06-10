@@ -367,6 +367,14 @@ MVP should be runtime-neutral:
 - render combined `juno jcode panel` markdown page
 - selfdev/GTM workspace presets are included from M1
 
+### M6: Claude Code companion mode, done
+
+- `juno claude install` wires hooks + statusline into `.claude/settings.json` (idempotent, `--user` for global)
+- `juno claude hook` streams Claude Code hook events into `.juno/claude-events.jsonl`
+- SessionStart hook injects `juno context export` as session context
+- `juno claude statusline` persists session status to `.juno/claude-status.json` and prints a Juno-aware status line
+- dashboard Claude Code section, TUI "Claude" view, merged Activity timeline
+
 ## MVP success criteria
 
 The MVP is successful if a user can:
