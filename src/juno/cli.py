@@ -862,6 +862,7 @@ def run_curses_tui(root: Path) -> int:
     def app(stdscr: Any) -> None:
         curses.curs_set(0)
         stdscr.keypad(True)
+        stdscr.timeout(2000)  # getch returns -1 after 2s so the panel auto-refreshes
         selected = 0
         while True:
             stdscr.erase()
@@ -874,6 +875,8 @@ def run_curses_tui(root: Path) -> int:
                     pass
             stdscr.refresh()
             key = stdscr.getch()
+            if key == -1:
+                continue
             if key in (ord("q"), 27):
                 break
             if key in (curses.KEY_DOWN, ord("j")):
