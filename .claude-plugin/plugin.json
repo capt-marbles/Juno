@@ -1,0 +1,13 @@
+{
+  "name": "juno",
+  "displayName": "Juno",
+  "version": "0.3.0",
+  "description": "Terminal mission control panel for Claude Code: live agent events, session status, initiatives, approval gates, and a side-pane TUI.",
+  "author": {
+    "name": "A Walker",
+    "url": "https://github.com/capt-marbles"
+  },
+  "repository": "https://github.com/capt-marbles/Juno",
+  "license": "MIT",
+  "keywords": ["tui", "dashboard", "mission-control", "approvals", "agent-observability"]
+}

@@ -39,20 +39,30 @@ juno dashboard
 juno render dashboard > .juno/panel.md
 ```
 
-M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export. M3 adds the metadata-only Skills Center. M4 adds a curses-based TUI prototype with a testable `--once` mode. M5 adds file-based Jcode side panel bridge rendering. M6 adds Claude Code companion mode.
+M1 implements local `.juno/` state, a git-aware dashboard, and markdown rendering for side panels or companion panes. M2 adds initiatives, approvals, activity logging, and agent context export. M3 adds the metadata-only Skills Center. M4 adds a curses-based TUI prototype with a testable `--once` mode. M5 adds file-based Jcode side panel bridge rendering. M6 adds Claude Code companion mode. M7 packages Juno as a Claude Code plugin with a `/juno` side-panel command.
 
-### Claude Code companion mode
+### Claude Code plugin
+
+```text
+/plugin marketplace add capt-marbles/Juno
+/plugin install juno@juno
+```
+
+Then `/juno` opens the live TUI in a terminal side pane (tmux, zellij, kitty, WezTerm, iTerm2, or a new Apple Terminal window) and the plugin's hooks stream agent events with zero setup. See [`docs/claude-plugin.md`](docs/claude-plugin.md).
+
+### Claude Code companion mode (manual setup)
 
 ```bash
 juno claude install   # wires Juno into .claude/settings.json (hooks + statusline)
-juno tui              # watch the session live in the "Claude" view
+juno panel open       # split the terminal with the live "Claude" view
+juno tui              # or run the TUI directly
 ```
 
 Claude Code hooks stream agent events into `.juno/claude-events.jsonl`, the statusline persists session status (model, cost, context %) for the dashboard while displaying Juno state (pending approvals, initiatives) inside Claude Code, and every session starts with `juno context export` injected as context. See [`docs/claude-code-companion.md`](docs/claude-code-companion.md).
 
 ## MVP spec
 
-See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria. See [`docs/skill-manifest.md`](docs/skill-manifest.md) for the M3 skill manifest format. See [`docs/tui.md`](docs/tui.md) for the M4 TUI prototype. See [`docs/jcode-side-panel.md`](docs/jcode-side-panel.md) for the M5 side panel bridge. See [`docs/claude-code-companion.md`](docs/claude-code-companion.md) for the M6 Claude Code companion mode.
+See [`docs/mvp-spec.md`](docs/mvp-spec.md) for the current MVP scope, user stories, milestones, and success criteria. See [`docs/skill-manifest.md`](docs/skill-manifest.md) for the M3 skill manifest format. See [`docs/tui.md`](docs/tui.md) for the M4 TUI prototype. See [`docs/jcode-side-panel.md`](docs/jcode-side-panel.md) for the M5 side panel bridge. See [`docs/claude-code-companion.md`](docs/claude-code-companion.md) for the M6 Claude Code companion mode. See [`docs/claude-plugin.md`](docs/claude-plugin.md) for the M7 plugin and side panel.
 
 ## Mental model
 
@@ -67,4 +77,4 @@ Skills      = extensible workflow/playbook packages
 
 ## Status
 
-M6 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, metadata-only Skills Center, curses TUI prototype, Jcode side panel bridge, Claude Code companion mode (hooks, statusline, session-start context injection), and CLI tests. Next milestone is M7: choose Textual polish, transcript usage analytics, Claude skill import, or an MCP server.
+M7 is implemented: local `.juno/` state, git-aware dashboard, markdown rendering, initiatives, approvals, activity logging, context export, metadata-only Skills Center, curses TUI prototype (auto-refreshing), Jcode side panel bridge, Claude Code companion mode (hooks, statusline, session-start context injection), Claude Code plugin packaging with `/juno` side-panel command, and CLI tests. Next milestone is M8: choose transcript usage analytics, a Bubble Tea TUI binary, Claude skill import, or an MCP server.

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Juno launcher for plugin installs: runs the CLI straight from the repo with
+# no pip/uv install required. Any python3 >= 3.9 works (stdlib only).
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m juno.cli "$@"

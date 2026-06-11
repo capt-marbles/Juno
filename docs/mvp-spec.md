@@ -375,6 +375,15 @@ MVP should be runtime-neutral:
 - `juno claude statusline` persists session status to `.juno/claude-status.json` and prints a Juno-aware status line
 - dashboard Claude Code section, TUI "Claude" view, merged Activity timeline
 
+### M7: Claude Code plugin + side panel, done
+
+- `.claude-plugin/plugin.json` + `marketplace.json` — installable via `/plugin marketplace add capt-marbles/Juno`
+- `hooks/hooks.json` — plugin-bundled M6 hooks via `${CLAUDE_PLUGIN_ROOT}/bin/juno`
+- `bin/juno` shim — runs the CLI from the plugin with no pip/uv install
+- `commands/juno.md` — `/juno` opens the side panel and summarizes state
+- `skills/juno-approvals/SKILL.md` — approval-first workflow for outbound drafts
+- `juno panel open` — terminal-aware side pane launcher (tmux, zellij, kitty, WezTerm, iTerm2, Apple Terminal)
+
 ## MVP success criteria
 
 The MVP is successful if a user can:
