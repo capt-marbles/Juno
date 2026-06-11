@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -738,6 +740,73 @@ def install_claude_integration(root: Path, user: bool = False) -> tuple[Path, li
     return path, changes
 
 
+def panel_command(view: str) -> str:
+    # Absolute path so hosts launched outside the shell (e.g. `open -na Ghostty`)
+    # find juno without the user's PATH.
+    juno = shutil.which("juno") or "juno"
+    return f"{shlex.quote(juno)} tui --view {view}"
+
+
+def panel_spawn_args(root: Path, view: str, env: Optional[dict[str, str]] = None, platform_name: Optional[str] = None) -> Optional[list[str]]:
+    lookup = dict(os.environ) if env is None else env
+    platform = sys.platform if platform_name is None else platform_name
+    cwd = str(root)
+    # Panes/windows do not inherit this process's cwd, so every host pins it
+    # explicitly; otherwise the TUI reads .juno/ from the wrong directory.
+    shell_command = f"cd {shlex.quote(cwd)} && {panel_command(view)}"
+    argv = shlex.split(panel_command(view))
+    if lookup.get("TMUX"):
+        return ["tmux", "split-window", "-h", "-d", "-c", cwd, shell_command]
+    if lookup.get("ZELLIJ"):
+        return ["zellij", "run", "--direction", "right", "--cwd", cwd, "--", *argv]
+    if lookup.get("KITTY_WINDOW_ID"):
+        return ["kitty", "@", "launch", "--location=vsplit", "--cwd", cwd, *argv]
+    term = lookup.get("TERM_PROGRAM", "")
+    if term == "WezTerm":
+        return ["wezterm", "cli", "split-pane", "--cwd", cwd, "--", *argv]
+    if term == "iTerm.app":
+        script = (
+            'tell application "iTerm2" to tell current session of current window '
+            f'to split vertically with default profile command "{shell_command}"'
+        )
+        return ["osascript", "-e", script]
+    if term == "Apple_Terminal":
+        return [
+            "osascript",
+            "-e", f'tell application "Terminal" to do script "{shell_command}"',
+            "-e", 'tell application "Terminal" to activate',
+        ]
+    if term.lower() == "ghostty":
+        # Ghostty has no split-pane CLI; open a new window running the TUI.
+        if platform == "darwin":
+            return ["open", "-na", "Ghostty", "--args", f"--working-directory={cwd}", "-e", *argv]
+        return ["ghostty", f"--working-directory={cwd}", "-e", *argv]
+    return None
+
+
+def open_panel(root: Path, view: str, dry_run: bool = False) -> int:
+    spawn = panel_spawn_args(root, view)
+    if spawn is None:
+        print("No supported terminal detected (tmux, zellij, kitty, WezTerm, iTerm2, Ghostty, Apple Terminal).")
+        print(f"Open another pane and run: {panel_command(view)}")
+        return 1
+    if dry_run:
+        print(shlex.join(spawn))
+        return 0
+    try:
+        result = subprocess.run(spawn, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except OSError as exc:
+        raise SystemExit(f"Failed to launch panel: {exc}") from exc
+    if result.returncode != 0:
+        print(f"Panel launcher exited {result.returncode}: {(result.stdout or '').strip()}")
+        print(f"Open another pane and run: {panel_command(view)}")
+        return 1
+    print(f"Opened Juno side panel ({view} view).")
+    if state_dir(root).exists():
+        append_activity(root, "panel.open", f"Opened side panel ({view} view)")
+    return 0
+
+
 def claude_dashboard_lines(model: dict[str, Any], markdown: bool = False) -> list[str]:
     claude = model.get("claude") or {}
     if not isinstance(claude, dict) or not claude:
@@ -831,6 +900,7 @@ def tui_detail_lines(root: Path, selected: int) -> list[str]:
         "- juno approvals list",
         "- juno skills list",
         "- juno claude install",
+        "- juno panel open",
         "- juno context export",
     ]
 
@@ -1022,6 +1092,12 @@ def build_parser() -> argparse.ArgumentParser:
     panel.add_argument("--output", default=str(Path(JUNO_DIR) / "jcode-panel.md"), help="output markdown path")
     panel.add_argument("--tui-view", choices=[name.lower() for name in TUI_VIEWS], default="dashboard")
 
+    panel = subparsers.add_parser("panel", help="open Juno in a terminal side pane")
+    panel_sub = panel.add_subparsers(dest="panel_command")
+    panel_open = panel_sub.add_parser("open", help="split the current terminal and run juno tui")
+    panel_open.add_argument("--view", choices=[name.lower() for name in TUI_VIEWS], default="claude")
+    panel_open.add_argument("--dry-run", action="store_true", help="print the launch command without running it")
+
     claude = subparsers.add_parser("claude", help="Claude Code companion integration")
     claude_sub = claude.add_subparsers(dest="claude_command")
     claude_install = claude_sub.add_parser("install", help="wire Juno hooks and statusline into Claude Code settings")
@@ -1133,6 +1209,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             write_or_print(render_jcode_panel(root, args.tui_view), args.output)
             return 0
         parser.parse_args(["jcode", "--help"])
+        return 0
+
+    if args.command == "panel":
+        if args.panel_command == "open":
+            return open_panel(root, args.view, args.dry_run)
+        parser.parse_args(["panel", "--help"])
         return 0
 
     if args.command == "claude":

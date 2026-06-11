@@ -1,0 +1,14 @@
+{
+  "name": "juno",
+  "owner": {
+    "name": "capt-marbles",
+    "url": "https://github.com/capt-marbles"
+  },
+  "plugins": [
+    {
+      "name": "juno",
+      "source": "./",
+      "description": "Terminal mission control panel for Claude Code: live agent events, session status, initiatives, approval gates, and a side-pane TUI."
+    }
+  ]
+}
