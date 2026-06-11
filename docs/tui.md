@@ -31,4 +31,4 @@ juno tui --once --view skills
 
 ## Notes
 
-This is intentionally still a prototype. It proves the menu-driven control-panel model without adding a third-party TUI dependency yet. A future M4.5/M5 could move to Textual for richer widgets.
+The TUI auto-refreshes every 2 seconds (curses getch timeout); any key still refreshes immediately. This is intentionally still a prototype. It proves the menu-driven control-panel model without adding a third-party TUI dependency yet. A future M4.5/M5 could move to Textual for richer widgets.

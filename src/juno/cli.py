@@ -27,6 +27,7 @@ MENU = [
     MenuItem("Background Tasks", "Builds, tests, commands, logs"),
     MenuItem("Skills", "Installed skills, imports, updates, permissions"),
     MenuItem("Approvals", "Drafts and risky actions awaiting human approval"),
+    MenuItem("Claude", "Live Claude Code session status and agent events"),
     MenuItem("Settings", "Workspace config and safety policy"),
 ]
 
@@ -169,8 +170,7 @@ def git_summary(root: Path) -> dict[str, str]:
     return {"inside": "true", "branch": branch, "status": status}
 
 
-def recent_activity(root: Path, limit: int = 5) -> list[dict[str, Any]]:
-    path = state_dir(root) / "activity.jsonl"
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     records = []
@@ -178,10 +178,16 @@ def recent_activity(root: Path, limit: int = 5) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
         except json.JSONDecodeError:
             continue
-    return records[-limit:]
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def recent_activity(root: Path, limit: int = 5) -> list[dict[str, Any]]:
+    return read_jsonl(state_dir(root) / "activity.jsonl")[-limit:]
 
 
 def collection_path(root: Path, name: str) -> Path:
@@ -387,6 +393,7 @@ def dashboard_model(root: Path) -> dict[str, Any]:
             "pending_approvals": len(pending_approvals),
             "skills": len(skills) if isinstance(skills, list) else 0,
         },
+        "claude": read_json_file(juno / "claude-status.json", {}),
         "activity": recent_activity(root),
     }
 
@@ -421,6 +428,7 @@ def render_dashboard_text(model: dict[str, Any]) -> str:
         f"Branch: {model['git']['branch']}",
         f"Status: {model['git']['status']}",
         "",
+        *claude_dashboard_lines(model),
         "Counts",
         "------",
         f"Initiatives: {model['counts']['initiatives']}",
@@ -453,6 +461,7 @@ def render_dashboard_markdown(model: dict[str, Any]) -> str:
         f"- Branch: `{model['git']['branch']}`",
         f"- Status: `{model['git']['status']}`",
         "",
+        *claude_dashboard_lines(model, markdown=True),
         "## Counts",
         "",
         f"- Initiatives: **{model['counts']['initiatives']}**",
@@ -544,7 +553,206 @@ def context_export_markdown(root: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-TUI_VIEWS = ["Dashboard", "Workspaces", "Initiatives", "Approvals", "Skills", "Activity", "Help"]
+CLAUDE_EVENTS_FILE = "claude-events.jsonl"
+CLAUDE_STATUS_FILE = "claude-status.json"
+CLAUDE_HOOK_COMMAND = "juno claude hook"
+CLAUDE_STATUSLINE_COMMAND = "juno claude statusline"
+CLAUDE_HOOK_EVENTS = ["SessionStart", "PostToolUse", "Stop"]
+
+
+def read_stdin_json() -> dict[str, Any]:
+    raw = sys.stdin.read()
+    try:
+        value = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def claude_events_path(root: Path) -> Path:
+    return state_dir(root) / CLAUDE_EVENTS_FILE
+
+
+def claude_status_path(root: Path) -> Path:
+    return state_dir(root) / CLAUDE_STATUS_FILE
+
+
+def recent_claude_events(root: Path, limit: int = 5) -> list[dict[str, Any]]:
+    return read_jsonl(claude_events_path(root))[-limit:]
+
+
+def claude_hook_record(payload: dict[str, Any]) -> dict[str, Any]:
+    event_name = str(payload.get("hook_event_name") or "unknown")
+    parts = []
+    tool = str(payload.get("tool_name") or "").strip()
+    if tool:
+        parts.append(f"tool={tool}")
+    tool_input = payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        for key in ("description", "command", "file_path", "path", "url", "pattern", "prompt", "skill"):
+            value = str(tool_input.get(key) or "").strip().replace("\n", " ")
+            if value:
+                parts.append(f"{key}={value[:120]}")
+                break
+    session = str(payload.get("session_id") or "")
+    if session:
+        parts.append(f"session={session[:8]}")
+    return {"at": utc_now(), "event": f"claude.{event_name}", "detail": "; ".join(parts) or event_name}
+
+
+def append_claude_event(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    record = claude_hook_record(payload)
+    path = claude_events_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+    return record
+
+
+def run_claude_hook(root: Path, payload: dict[str, Any]) -> int:
+    # Hooks must never break a Claude Code session: no-op when Juno is not initialized.
+    if not state_dir(root).exists():
+        return 0
+    append_claude_event(root, payload)
+    if str(payload.get("hook_event_name") or "") == "SessionStart":
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": context_export_markdown(root),
+            }
+        }
+        print(json.dumps(output))
+    return 0
+
+
+def claude_context_percent(payload: dict[str, Any]) -> Optional[int]:
+    # The statusline payload shape varies across Claude Code versions; probe known spots.
+    for key in ("context_window", "context"):
+        ctx = payload.get(key)
+        if not isinstance(ctx, dict):
+            continue
+        for pct_key in ("used_percentage", "used_percent", "percent_used"):
+            value = ctx.get(pct_key)
+            if isinstance(value, (int, float)):
+                return int(value)
+        used = ctx.get("used_tokens") or ctx.get("input_tokens")
+        limit = ctx.get("max_tokens") or ctx.get("context_limit")
+        if isinstance(used, (int, float)) and isinstance(limit, (int, float)) and limit:
+            return int(100 * used / limit)
+    return None
+
+
+def claude_status_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    model = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+    cost = payload.get("cost") if isinstance(payload.get("cost"), dict) else {}
+    workspace = payload.get("workspace") if isinstance(payload.get("workspace"), dict) else {}
+    return {
+        "updated_at": utc_now(),
+        "session_id": str(payload.get("session_id") or ""),
+        "model": str(model.get("display_name") or model.get("id") or "unknown"),
+        "cost_usd": cost.get("total_cost_usd"),
+        "lines_added": cost.get("total_lines_added"),
+        "lines_removed": cost.get("total_lines_removed"),
+        "context_percent": claude_context_percent(payload),
+        "current_dir": str(workspace.get("current_dir") or payload.get("cwd") or ""),
+        "claude_version": str(payload.get("version") or ""),
+        "raw": payload,
+    }
+
+
+def render_claude_statusline(root: Path, summary: dict[str, Any]) -> str:
+    parts = [summary["model"]]
+    if isinstance(summary.get("context_percent"), (int, float)):
+        parts.append(f"ctx {summary['context_percent']}%")
+    cost = summary.get("cost_usd")
+    if isinstance(cost, (int, float)):
+        parts.append(f"${cost:.2f}")
+    git = git_summary(root)
+    if git["inside"] == "true":
+        parts.append(f"{git['branch']} ({git['status']})")
+    if state_dir(root).exists():
+        approvals = load_collection(root, "approvals")
+        pending = len([a for a in approvals if a.get("status", "pending") == "pending"])
+        if pending:
+            parts.append(f"⚠ {pending} approval{'s' if pending != 1 else ''} pending")
+        initiatives = load_collection(root, "initiatives")
+        active = len([i for i in initiatives if i.get("status", "active") == "active"])
+        if active:
+            parts.append(f"{active} initiative{'s' if active != 1 else ''}")
+    return " | ".join(parts)
+
+
+def run_claude_statusline(root: Path, payload: dict[str, Any]) -> int:
+    summary = claude_status_summary(payload)
+    if state_dir(root).exists():
+        write_json_file(claude_status_path(root), summary)
+    print(render_claude_statusline(root, summary))
+    return 0
+
+
+def claude_settings_path(root: Path, user: bool = False) -> Path:
+    if user:
+        return Path.home() / ".claude" / "settings.json"
+    return root / ".claude" / "settings.json"
+
+
+def merge_claude_settings(settings: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    changes: list[str] = []
+    status_line = settings.get("statusLine")
+    if not isinstance(status_line, dict) or status_line.get("command") != CLAUDE_STATUSLINE_COMMAND:
+        settings["statusLine"] = {"type": "command", "command": CLAUDE_STATUSLINE_COMMAND}
+        changes.append(f"statusLine -> `{CLAUDE_STATUSLINE_COMMAND}`")
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+        settings["hooks"] = hooks
+    for event in CLAUDE_HOOK_EVENTS:
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            groups = []
+            hooks[event] = groups
+        already = any(
+            isinstance(group, dict)
+            and any(
+                isinstance(hook, dict) and CLAUDE_HOOK_COMMAND in str(hook.get("command", ""))
+                for hook in (group.get("hooks") or [])
+            )
+            for group in groups
+        )
+        if not already:
+            groups.append({"hooks": [{"type": "command", "command": CLAUDE_HOOK_COMMAND}]})
+            changes.append(f"hooks.{event} += `{CLAUDE_HOOK_COMMAND}`")
+    return settings, changes
+
+
+def install_claude_integration(root: Path, user: bool = False) -> tuple[Path, list[str]]:
+    path = claude_settings_path(root, user)
+    settings = read_json_file(path, {})
+    if not isinstance(settings, dict):
+        raise SystemExit(f"Existing settings file is not a JSON object: {path}")
+    settings, changes = merge_claude_settings(settings)
+    if changes:
+        write_json_file(path, settings)
+    if state_dir(root).exists():
+        append_activity(root, "claude.install", f"Updated {path} ({len(changes)} changes)")
+    return path, changes
+
+
+def claude_dashboard_lines(model: dict[str, Any], markdown: bool = False) -> list[str]:
+    claude = model.get("claude") or {}
+    if not isinstance(claude, dict) or not claude:
+        return []
+    cost = claude.get("cost_usd")
+    cost_text = f"${cost:.2f}" if isinstance(cost, (int, float)) else "unknown cost"
+    ctx = claude.get("context_percent")
+    ctx_text = f", ctx {ctx}%" if isinstance(ctx, (int, float)) else ""
+    summary = f"{claude.get('model', 'unknown')} ({cost_text}{ctx_text})"
+    if markdown:
+        return ["## Claude Code", "", f"- Session: `{summary}`", f"- Updated: `{claude.get('updated_at', '?')}`", ""]
+    return ["Claude Code", "-----------", f"Session: {summary}", f"Updated: {claude.get('updated_at', '?')}", ""]
+
+
+TUI_VIEWS = ["Dashboard", "Workspaces", "Initiatives", "Approvals", "Skills", "Claude", "Activity", "Help"]
 
 
 def workspace_summaries(root: Path) -> list[str]:
@@ -575,8 +783,34 @@ def tui_detail_lines(root: Path, selected: int) -> list[str]:
         return ["Approvals", "=========", "", *format_item_list(load_collection(root, "approvals"), "approvals").splitlines()]
     if view == "Skills":
         return ["Skills", "======", "", *format_item_list(load_collection(root, "skills"), "skills").splitlines()]
+    if view == "Claude":
+        summary = read_json_file(claude_status_path(root), {})
+        lines = ["Claude Session", "==============", ""]
+        if isinstance(summary, dict) and summary:
+            cost = summary.get("cost_usd")
+            cost_text = f"${cost:.2f}" if isinstance(cost, (int, float)) else "unknown"
+            ctx = summary.get("context_percent")
+            lines.extend([
+                f"Model: {summary.get('model', 'unknown')}",
+                f"Session: {str(summary.get('session_id', ''))[:8] or 'unknown'}",
+                f"Cost: {cost_text}",
+                f"Context: {f'{ctx}%' if isinstance(ctx, (int, float)) else 'unknown'}",
+                f"Updated: {summary.get('updated_at', '?')}",
+            ])
+        else:
+            lines.append("No Claude session recorded. Run `juno claude install`, then start Claude Code here.")
+        events = recent_claude_events(root, limit=10)
+        lines.extend(["", "Recent agent events", "-------------------"])
+        if events:
+            lines.extend(f"- {item.get('at', '?')}: {item.get('event', '?')} - {item.get('detail', '')}" for item in events)
+        else:
+            lines.append("No Claude events yet.")
+        return lines
     if view == "Activity":
-        rows = recent_activity(root, limit=20)
+        rows = sorted(
+            [*recent_activity(root, limit=20), *recent_claude_events(root, limit=20)],
+            key=lambda item: str(item.get("at", "")),
+        )[-20:]
         lines = ["Activity", "========", ""]
         lines.extend(f"- {item.get('at', '?')}: {item.get('event', '?')} - {item.get('detail', '')}" for item in rows)
         return lines if len(lines) > 3 else [*lines, "No activity."]
@@ -596,6 +830,7 @@ def tui_detail_lines(root: Path, selected: int) -> list[str]:
         "- juno initiatives list",
         "- juno approvals list",
         "- juno skills list",
+        "- juno claude install",
         "- juno context export",
     ]
 
@@ -627,6 +862,7 @@ def run_curses_tui(root: Path) -> int:
     def app(stdscr: Any) -> None:
         curses.curs_set(0)
         stdscr.keypad(True)
+        stdscr.timeout(2000)  # getch returns -1 after 2s so the panel auto-refreshes
         selected = 0
         while True:
             stdscr.erase()
@@ -639,6 +875,8 @@ def run_curses_tui(root: Path) -> int:
                     pass
             stdscr.refresh()
             key = stdscr.getch()
+            if key == -1:
+                continue
             if key in (ord("q"), 27):
                 break
             if key in (curses.KEY_DOWN, ord("j")):
@@ -709,7 +947,7 @@ def render_menu() -> str:
     for idx, item in enumerate(MENU, start=1):
         prefix = ">" if idx == 1 else " "
         lines.append(f"{prefix} {idx}. {item.label:<17} {item.description}")
-    lines.extend(["", "Commands: init, dashboard, render dashboard, tui, initiatives, approvals, skills, context export"])
+    lines.extend(["", "Commands: init, dashboard, render dashboard, tui, initiatives, approvals, skills, claude install, context export"])
     return "\n".join(lines)
 
 
@@ -783,6 +1021,14 @@ def build_parser() -> argparse.ArgumentParser:
     panel = jcode_sub.add_parser("panel", help="render a Jcode side-panel markdown page")
     panel.add_argument("--output", default=str(Path(JUNO_DIR) / "jcode-panel.md"), help="output markdown path")
     panel.add_argument("--tui-view", choices=[name.lower() for name in TUI_VIEWS], default="dashboard")
+
+    claude = subparsers.add_parser("claude", help="Claude Code companion integration")
+    claude_sub = claude.add_subparsers(dest="claude_command")
+    claude_install = claude_sub.add_parser("install", help="wire Juno hooks and statusline into Claude Code settings")
+    claude_install.add_argument("--user", action="store_true", help="write to ~/.claude/settings.json instead of project .claude/settings.json")
+    claude_sub.add_parser("hook", help="Claude Code hook endpoint; reads hook JSON from stdin")
+    claude_sub.add_parser("statusline", help="Claude Code statusline command; reads status JSON from stdin")
+    claude_sub.add_parser("status", help="show the last recorded Claude session status")
 
     context = subparsers.add_parser("context", help="export context for an agent")
     context_sub = context.add_subparsers(dest="context_command")
@@ -887,6 +1133,31 @@ def main(argv: Optional[list[str]] = None) -> int:
             write_or_print(render_jcode_panel(root, args.tui_view), args.output)
             return 0
         parser.parse_args(["jcode", "--help"])
+        return 0
+
+    if args.command == "claude":
+        if args.claude_command == "install":
+            path, changes = install_claude_integration(root, user=args.user)
+            if changes:
+                print(f"Updated {path}:")
+                for change in changes:
+                    print(f"- {change}")
+            else:
+                print(f"No changes needed in {path}.")
+            print("Restart Claude Code (or run /hooks) to pick up the integration.")
+            return 0
+        if args.claude_command == "hook":
+            return run_claude_hook(root, read_stdin_json())
+        if args.claude_command == "statusline":
+            return run_claude_statusline(root, read_stdin_json())
+        if args.claude_command == "status":
+            summary = read_json_file(claude_status_path(root), {})
+            if not summary:
+                print("No Claude status recorded yet. Run `juno claude install`, then start a Claude Code session here.")
+                return 0
+            print(format_item_detail(summary))
+            return 0
+        parser.parse_args(["claude", "--help"])
         return 0
 
     if args.command == "context":
